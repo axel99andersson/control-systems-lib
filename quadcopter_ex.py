@@ -15,9 +15,6 @@ def quadcopter_dynamics(state, inputs, params):
             - Rotor forces (f1 to f4)
         params: dict containing physical parameters of the quadcopter.
     """
-    # Extract state variables
-    x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
-    f1, f2, f3, f4 = inputs  # Rotor forces
     
     # Extract parameters
     m = params.get("m", 1.5)    # Mass (kg)
@@ -27,7 +24,12 @@ def quadcopter_dynamics(state, inputs, params):
     Iyy = params.get("Iyy", 0.0142)  # Moment of inertia about y-axis
     Izz = params.get("Izz", 0.0284)  # Moment of inertia about z-axis
     k = params.get("k", 0.01)  # Torque coefficient
+    Fmax = params.get("Fmax", 75) # Max thrust force (N)
     
+    # Extract state variables
+    x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
+    f1, f2, f3, f4 = Fmax*inputs  # Rotor forces
+
     # Compute forces and torques
     Fz = f1 + f2 + f3 + f4  # Total thrust
     tau_phi = l * (f2 - f4)  # Roll torque
@@ -46,7 +48,7 @@ def quadcopter_dynamics(state, inputs, params):
     ])
     
     # Linear accelerations
-    acc = (R @ np.array([0, 0, Fz])) / m - np.array([0, 0, g])
+    acc = (R @ np.array([0, 0, Fz])) / m - np.array([0, 0, g]) if z != 0 else (R @ np.array([0, 0, Fz]))
     
     # Angular accelerations
     p_dot = (tau_phi - (Izz - Iyy) * q * r) / Ixx
@@ -68,7 +70,7 @@ dt = 0.01  # Time step
 time = np.arange(0, 30, dt)  # Simulation time
 
 # PID controllers
-altitude_pid = PIDController(1.0, 0.1, 0.01)
+altitude_pid = PIDController(0.15, 0.05, 0.12)
 roll_pid = PIDController(1.0, 0.1, 0.01)
 pitch_pid = PIDController(1.0, 0.1, 0.01)
 yaw_pid = PIDController(1.0, 0.1, 0.01)
@@ -90,7 +92,6 @@ for t in time:
     tau_phi = roll_pid.compute(target_roll, phi, dt)
     tau_theta = pitch_pid.compute(target_pitch, theta, dt)
     tau_psi = yaw_pid.compute(target_yaw, psi, dt)
-    
     # Convert to rotor forces
     f1 = (Fz + tau_theta - tau_phi + tau_psi) / 4
     f2 = (Fz - tau_theta - tau_phi - tau_psi) / 4
@@ -100,6 +101,7 @@ for t in time:
     
     # Update state
     state = state + quadcopter_dynamics(state, inputs, params) * dt
+    state[2] = max(state[2], 0) # Altitude correction
     states.append(state)
 
 import matplotlib.pyplot as plt

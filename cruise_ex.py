@@ -1,6 +1,10 @@
 import numpy as np
+import matplotlib.pyplot as plt
+
 from pid_controller import PIDController
 from ekf import EKF
+from anomaly_detection import CUSUMDetector
+from metrics import MetricsTracker, plot_figs
 
 def road_slope(x):
     """
@@ -112,74 +116,58 @@ params = {
 
 dt = 0.1        # Time step
 time = np.arange(0, 50, dt)
-attack_start = 10
-attack_end = 20
+attack_start = -1
+attack_end = -1
 
 # Controller init and target velocity
-v_controller = PIDController(0.5, 0.1, 0)
+v_controller = PIDController(0.5, 0.5, 0.01)
 target_velocity = 20
 
 # Process and measurement noise
 process_noise_cov = np.diag([0.01, 0.1])
 measurement_noise_cov = 0.2
 
-# EKF
+# Init Extended Kalman Filter
 ekf = EKF(
     dynamics_func=vehicle_dynamics,
     measurement_func=measurement_func,
     state_dim=2,
-    meas_dim=1
+    meas_dim=1,
+    x_init=state
 )
 
+# Anomaly Detector
+cusum = CUSUMDetector(
+    thresholds=5*np.array([0.16000361755278]),
+    b=np.array([0.18543593999687008]) + 0.5*np.array([0.16000361755278])
+)
+
+# Save metrics
+tracker = MetricsTracker()
+
 # Simulate
-states = []
-measurements = []
-throttles = []
 for t in time:
-    states.append(state)
-    measurements.append(measurement)
+    estimated_state = ekf.get_state_estimate()
+    residual = measurement - measurement_func(estimated_state)
     measurement = measurement_func(state) + np.random.normal(0, measurement_noise_cov)
+    throttle = v_controller.compute(target_velocity, measurement, dt)
+    derivatives = vehicle_dynamics(state, [throttle], params) 
+    tracker.track(state, estimated_state, measurement, throttle, residual)
+    state = state + derivatives * dt + np.random.multivariate_normal(np.zeros(2), process_noise_cov)
     if t > attack_start and t < attack_end:
         measurement = attack(measurement, magnitude=2.0)
-    throttle = v_controller.compute(target_velocity, measurement, dt)
-    # ekf.predict([throttle], dt, params)
-    # ekf.update(np.array([measurement]))
-    derivatives = vehicle_dynamics(state, [throttle], params) 
-    state = state + derivatives * dt + np.random.multivariate_normal(np.zeros(2), process_noise_cov)
-    throttles.append(throttle)
+        ekf.predict([throttle], dt, params)
+    else:
+        ekf.predict([throttle], dt, params)
+        ekf.update(np.array([measurement]))
+    
 
-states = np.array(states)
-measurements = np.array(measurements)
-throttles = np.array(throttles)
-import matplotlib.pyplot as plt
-
-# Plot position and velocity
-plt.figure(figsize=(12, 8))
-plt.subplot(2, 1, 1)
-plt.plot(time, states[:, 0], label="Position (m)")
-plt.xlabel("Time (s)")
-plt.ylabel("Position (m)")
-plt.title("Vehicle Position")
-plt.legend()
-
-plt.subplot(2, 1, 2)
-plt.plot(time, states[:, 1], label="True Velocity (m/s)", color='orange')
-plt.plot(time, measurements, label="Measurement", color='red')
-plt.vlines(10, 0, 30)
-plt.vlines(20, 0, 30)
-plt.xlabel("Time (s)")
-plt.ylabel("Velocity (m/s)")
-plt.title("Vehicle Velocity")
-plt.legend()
-
-plt.figure(figsize=(6, 4))
-plt.plot(time, throttles, label="Throttle")
-plt.xlabel("Time (s)")
-plt.ylabel("Throttle")
-plt.legend()
+print(tracker.residual_statistics())
+plot_figs(time, tracker)
 
 # Plot the road slope as a function of position
 plt.figure(figsize=(6, 4))
+states = np.array(tracker.get_metrics()[0])
 positions = states[:, 0]
 slopes = np.array([road_slope(pos) for pos in positions])
 plt.plot(positions, slopes, label="Road Slope (rad)")
