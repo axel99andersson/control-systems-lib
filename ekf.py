@@ -1,7 +1,7 @@
 import numpy as np
 
 class EKF:
-    def __init__(self, dynamics_func, measurement_func, state_dim, meas_dim, Q=None, R=None):
+    def __init__(self, dynamics_func, measurement_func, state_dim, meas_dim, Q=None, R=None, x_init=None):
         """
         Extended Kalman Filter for a generic nonlinear system.
 
@@ -22,7 +22,7 @@ class EKF:
         self.meas_dim = meas_dim      # Measurement vector dimension
 
         # Initialize state and covariance
-        self.x = np.zeros(state_dim)  # State estimate
+        self.x = x_init if x_init is not None else np.zeros(state_dim)  # State estimate
         self.P = np.eye(state_dim)   # Covariance estimate
 
         # Process and measurement noise covariance
@@ -48,7 +48,6 @@ class EKF:
         self.P : Predicted state covariance.
         """
         # Predict state using dynamics function
-        breakpoint()
         self.x = self.x + self.f(self.x, u, params) * dt
 
         # Compute Jacobian of the dynamics function
@@ -108,7 +107,10 @@ class EKF:
         """
         epsilon = 1e-5
         n = len(x)
-        m = len(func(x, u, params)) if u is not None else len(func(x))
+        if u is None and isinstance(func(x), float):
+            m = 1
+        else:
+            m = len(func(x, u, params)) if u is not None else len(func(x))
         J = np.zeros((m, n))
         for i in range(n):
             x_perturb = x.copy()
@@ -118,3 +120,23 @@ class EKF:
             else:
                 J[:, i] = (func(x_perturb) - func(x)) / epsilon
         return J
+    
+    def get_state_estimate(self):
+        """
+        Returns the state estimate
+
+        Returns:
+        --------
+        np.array : the state estimate
+        """
+        return self.x
+    
+    def get_state_estimate_covariance(self):
+        """
+        Returns the covariance of the state estimate
+
+        Returns:
+        --------
+        np.array : the estimated covariance matrix of the state 
+        """
+        return self.P
