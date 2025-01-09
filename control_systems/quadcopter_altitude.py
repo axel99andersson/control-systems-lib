@@ -2,6 +2,9 @@ import numpy as np
 
 from pid_controller import PIDController
 from .base_control_system import BaseControlSystem
+from anomaly_detection import CUSUMDetector
+from ekf import EKF
+from metrics import MetricsTracker
 
 class QuadcopterAltitude(BaseControlSystem):
 
@@ -71,10 +74,144 @@ class QuadcopterAltitude(BaseControlSystem):
         ])
     
     def measurement_func(self, state):
-        return super().measurement_func(state)
+        """
+        Measurement function, mapping states to measurements
+        The altitude and Euler angles are measured in this setup
+
+        Parameters:
+            state: np.array
     
-    def attack(self, measurement):
-        return super().attack(measurement)
+        Returns:
+            np.array: [z (alt.), phi, theta, psi (Euler ang.)]
+        """
+        z, phi, theta, psi = state[2], state[6], state[7], state[8]
+        return np.array([z, phi, theta, psi])
     
-    def run_control_system(self, config):
-        return super().run_control_system(config)
+    def attack(self, measurement, magnitude):
+        """
+        Attack the measurement signal with some magnitude
+        TODO: Implement more types of attacks
+
+        Parameters:
+            measurement: float
+            magnitude: float
+        Returns:
+            float
+        """
+        attacked_measurement = measurement + magnitude*np.array([1, 0, 0, 0]) # Attack on altitude
+        return attacked_measurement
+
+    def run_control_system(self, config=
+        {
+            "params": {"m": 1.5, 
+                        "g": 9.81, 
+                        "l": 0.25, 
+                        "Ixx": 0.0142, 
+                        "Iyy": 0.0142, 
+                        "Izz": 0.0284, 
+                        "k": 0.01,
+                        "Fmax": 75
+                    },
+            "init-state": np.zeros(12),
+            "dt": 0.01,
+            "time": 30,
+            "attack-start": -1,
+            "attack-end": -1,
+            "altitude-pid": PIDController(0.15, 0.05, 0.12),
+            "roll-pid": PIDController(1.0, 0.1, 0.01),
+            "pitch-pid": PIDController(1.0, 0.1, 0.01),
+            "yaw-pid": PIDController(1.0, 0.1, 0.01),
+            "target-altitude": 10,
+            "target-roll": 0,
+            "target-pitch": 0,
+            "target-yaw": 0,
+            "process-noise-cov": np.diag([0.01 for _ in range(12)]),
+            "measurement-noise-cov": np.diag([0.05 for _ in range(4)]),
+            "anomaly-detector": CUSUMDetector(
+                thresholds=5*np.array([0.16000361755278]),
+                b=np.array([0.18543593999687008]) + 0.5*np.array([0.16000361755278])),
+        }):
+
+        # Process and measurement noise
+        process_noise_cov = config['process-noise-cov']
+        measurement_noise_cov = config['measurement-noise-cov']
+
+        # Initial conditions and parameters
+        state = config['init-state']  # Initial state [x, y, z, vx, vy, vz, phi, theta, psi, p, q, r]
+        measurement = self.measurement_func(state) + np.random.multivariate_normal(np.zeros(4), measurement_noise_cov)
+        params = config['params']
+        
+        dt = config['dt']  # Time step
+        time = np.arange(0, config['time'], dt)  # Simulation time
+        attack_start = config['attack-start']
+        attack_end = config['attack-end']
+
+        # PID controllers
+        altitude_pid: PIDController = config['altitude-pid']
+        roll_pid: PIDController = config['roll-pid']
+        pitch_pid: PIDController = config['pitch-pid']
+        yaw_pid: PIDController = config['yaw-pid']
+
+        # Target states
+        target_altitude = config['target-altitude']  # Target altitude (m)
+        target_roll = config['target-roll']       # Target roll (rad)
+        target_pitch = config['target-pitch']      # Target pitch (rad)
+        target_yaw = config['target-yaw']        # Target yaw (rad)
+
+        # Init Extended Kalman Filter
+        ekf = EKF(
+            dynamics_func=self.dynamics,
+            measurement_func=self.measurement_func,
+            state_dim=12,
+            meas_dim=4,
+            x_init=state
+        )
+
+        # Anomaly Detector
+        cusum = config['anomaly-detector']
+
+        # Save metrics
+        tracker = MetricsTracker()
+
+        # Simulation
+        for t in time:
+            estimated_state = ekf.get_state_estimate()
+            residual = measurement - self.measurement_func(estimated_state)
+            # Extract current state
+            z, phi, theta, psi = self.measurement_func(state) \
+                + np.random.multivariate_normal(np.zeros(4), measurement_noise_cov)
+            measurement = np.array([z, phi, theta, psi])
+            # Compute PID outputs
+            Fz = altitude_pid.compute(target_altitude, z, dt)
+            tau_phi = roll_pid.compute(target_roll, phi, dt)
+            tau_theta = pitch_pid.compute(target_pitch, theta, dt)
+            tau_psi = yaw_pid.compute(target_yaw, psi, dt)
+            # Convert to rotor forces
+            f1 = (Fz + tau_theta - tau_phi + tau_psi) / 4
+            f2 = (Fz - tau_theta - tau_phi - tau_psi) / 4
+            f3 = (Fz + tau_theta + tau_phi - tau_psi) / 4
+            f4 = (Fz - tau_theta + tau_phi + tau_psi) / 4
+            inputs = np.clip([f1, f2, f3, f4], 0, np.inf)  # Ensure forces are non-negative
+            # Log
+            tracker.track(state, estimated_state, measurement, inputs, residual)
+            # Update state
+            state = state + self.dynamics(state, inputs, params) * dt \
+                + np.random.multivariate_normal(np.zeros_like(state), process_noise_cov)
+            state[2] = max(state[2], 0) # Altitude correction
+            
+            if t > attack_start and t < attack_end:
+                measurement = self.attack(measurement, magnitude=2.0)
+                ekf.predict(inputs, dt, params)
+            else:
+                ekf.predict(inputs, dt, params)
+                ekf.update(measurement)
+
+        import matplotlib.pyplot as plt
+
+        states = np.array(tracker.get_metrics(metric='states'))
+        plt.figure()
+        plt.plot(time, states[:, 2], label='Altitude (z)')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Altitude (m)')
+        plt.legend()
+        plt.show()

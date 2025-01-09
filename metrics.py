@@ -8,6 +8,13 @@ class MetricsTracker:
         self.state_estimates = []
         self.control_signals = []
         self.residuals = []
+        self.metrics_map = {
+            "states": self.states,
+            "measurements": self.measurements,
+            "state_estimates": self.state_estimates,
+            "control_signals": self.control_signals,
+            "residuals": self.residuals,
+        }
 
     def track(self, state, estimated_state, measurement, control_signal, residuals):
         self.states.append(state)
@@ -15,13 +22,24 @@ class MetricsTracker:
         self.measurements.append(measurement)
         self.control_signals.append(control_signal)
         self.residuals.append(residuals)
+        self.metrics_map = {
+            "states": self.states,
+            "measurements": self.measurements,
+            "state_estimates": self.state_estimates,
+            "control_signals": self.control_signals,
+            "residuals": self.residuals,
+        }
 
-    def get_metrics(self):
-        return [self.states, 
-                self.state_estimates, 
-                self.measurements, 
-                self.control_signals, 
-                self.residuals]
+    def get_metrics(self, metric=None):
+        if metric is None:
+            return [self.states, 
+                    self.state_estimates, 
+                    self.measurements, 
+                    self.control_signals, 
+                    self.residuals]
+        else:
+            if metric not in self.metrics_map.keys(): raise Exception(f"{metric} not a Metric")
+            return self.metrics_map[metric]
     
     def residual_statistics(self):
         abs_residuals = np.absolute(self.residuals)

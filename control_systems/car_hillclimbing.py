@@ -134,7 +134,7 @@ class HillClimbingCar(BaseControlSystem):
     ):
         # Initial state and parameters
         state = config['init-state']  # [Position (m), Velocity (m/s)]
-        measurement = self.measurement_func(state)
+        measurement = self.measurement_func(state) + np.random.normal(0, measurement_noise_cov)
         params = config['params']
 
         dt = config['dt']        # Time step
@@ -143,7 +143,7 @@ class HillClimbingCar(BaseControlSystem):
         attack_end = config['attack-end']
 
         # Controller init and target velocity
-        v_controller = config['v-controller']
+        v_controller: PIDController = config['v-controller']
         target_velocity = config['target-velocity']
 
         # Process and measurement noise
