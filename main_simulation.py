@@ -5,7 +5,7 @@ from control_systems.quadcopter_altitude import QuadcopterAltitude
 from control_systems.base_control_system import BaseControlSystem
 
 @click.command()
-@click.option("--control_system", default="car", help="The control system you want to run")
+@click.option("-s", "--control_system", default="car", help="The control system you want to run")
 def main(control_system: str):
     """
     Main entry point to run a control system. Choose control system with the 

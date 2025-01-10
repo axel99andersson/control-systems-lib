@@ -34,36 +34,38 @@ class QuadcopterAltitude(BaseControlSystem):
         Iyy = params.get("Iyy", 0.0142)  # Moment of inertia about y-axis
         Izz = params.get("Izz", 0.0284)  # Moment of inertia about z-axis
         k = params.get("k", 0.01)  # Torque coefficient
-        Fmax = params.get("Fmax", 75) # Max thrust force (N)
+        b = params.get("b", 75) # Max thrust force (N)
         
         # Extract state variables
         x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
-        f1, f2, f3, f4 = Fmax*inputs  # Rotor forces
+        f1, f2, f3, f4 = inputs  # Rotor speeds
 
         # Compute forces and torques
-        Fz = f1 + f2 + f3 + f4  # Total thrust
-        tau_phi = l * (f2 - f4)  # Roll torque
-        tau_theta = l * (f3 - f1)  # Pitch torque
+        Fz = b * (f1 + f2 + f3 + f4)  # Total thrust
+        tau_phi = b*l * (f1 - f3)  # Roll torque
+        tau_theta = b*l * (f2 - f4)  # Pitch torque
         tau_psi = k * (f1 - f2 + f3 - f4)  # Yaw torque
         
         # Rotation matrix
         R = np.array([
-            [np.cos(theta) * np.cos(psi), 
-            np.sin(phi) * np.sin(theta) * np.cos(psi) - np.cos(phi) * np.sin(psi),
-            np.cos(phi) * np.sin(theta) * np.cos(psi) + np.sin(phi) * np.sin(psi)],
-            [np.cos(theta) * np.sin(psi), 
-            np.sin(phi) * np.sin(theta) * np.sin(psi) + np.cos(phi) * np.cos(psi),
-            np.cos(phi) * np.sin(theta) * np.sin(psi) - np.sin(phi) * np.cos(psi)],
-            [-np.sin(theta), np.sin(phi) * np.cos(theta), np.cos(phi) * np.cos(theta)]
+            [np.cos(phi)*np.cos(psi) - np.cos(theta)*np.sin(phi)*np.sin(psi), 
+            -np.cos(psi)*np.sin(phi) - np.cos(phi)*np.cos(theta)*np.sin(psi),
+            np.sin(theta)*np.sin(psi)],
+            [np.cos(theta) * np.cos(phi)*np.sin(psi) + np.cos(phi)*np.sin(psi), 
+            np.cos(phi)*np.cos(theta)*np.cos(psi) - np.sin(phi)*np.sin(psi),
+            -np.cos(psi)*np.sin(theta)],
+            [np.sin(phi)*np.sin(theta),
+             np.cos(phi) * np.sin(theta), 
+             np.cos(theta)]
         ])
         
         # Linear accelerations
-        acc = (R @ np.array([0, 0, Fz])) / m - np.array([0, 0, g]) if z != 0 else (R @ np.array([0, 0, Fz]))
+        acc = (R @ np.array([0, 0, Fz])) / m - np.array([0, 0, g]) if z >= 0 else (R @ np.array([0, 0, Fz]))
         
         # Angular accelerations
-        p_dot = (tau_phi - (Izz - Iyy) * q * r) / Ixx
-        q_dot = (tau_theta - (Ixx - Izz) * p * r) / Iyy
-        r_dot = (tau_psi - (Iyy - Ixx) * p * q) / Izz
+        p_dot = (tau_phi - (Iyy - Izz) * q * r) / Ixx
+        q_dot = (tau_theta - (Izz - Ixx) * p * r) / Iyy
+        r_dot = (tau_psi - (Ixx - Iyy) * p * q) / Izz
         
         # State derivatives
         return np.array([
@@ -110,7 +112,7 @@ class QuadcopterAltitude(BaseControlSystem):
                         "Iyy": 0.0142, 
                         "Izz": 0.0284, 
                         "k": 0.01,
-                        "Fmax": 75
+                        "b": 75
                     },
             "init-state": np.zeros(12),
             "dt": 0.01,
@@ -118,15 +120,15 @@ class QuadcopterAltitude(BaseControlSystem):
             "attack-start": -1,
             "attack-end": -1,
             "altitude-pid": PIDController(0.15, 0.05, 0.12),
-            "roll-pid": PIDController(1.0, 0.1, 0.01),
-            "pitch-pid": PIDController(1.0, 0.1, 0.01),
-            "yaw-pid": PIDController(1.0, 0.1, 0.01),
+            "roll-pid": PIDController(0.15, 0.05, 0.12),
+            "pitch-pid": PIDController(0.15, 0.05, 0.12),
+            "yaw-pid": PIDController(0.15, 0.05, 0.12),
             "target-altitude": 10,
             "target-roll": 0,
             "target-pitch": 0,
             "target-yaw": 0,
             "process-noise-cov": np.diag([0.01 for _ in range(12)]),
-            "measurement-noise-cov": np.diag([0.05 for _ in range(4)]),
+            "measurement-noise-cov": np.diag([0.000000005 for _ in range(4)]),
             "anomaly-detector": CUSUMDetector(
                 thresholds=5*np.array([0.16000361755278]),
                 b=np.array([0.18543593999687008]) + 0.5*np.array([0.16000361755278])),
@@ -138,7 +140,7 @@ class QuadcopterAltitude(BaseControlSystem):
 
         # Initial conditions and parameters
         state = config['init-state']  # Initial state [x, y, z, vx, vy, vz, phi, theta, psi, p, q, r]
-        measurement = self.measurement_func(state) + np.random.multivariate_normal(np.zeros(4), measurement_noise_cov)
+        # measurement = self.measurement_func(state) + np.random.multivariate_normal(np.zeros(4), measurement_noise_cov)
         params = config['params']
         
         dt = config['dt']  # Time step
@@ -176,27 +178,40 @@ class QuadcopterAltitude(BaseControlSystem):
         # Simulation
         for t in time:
             estimated_state = ekf.get_state_estimate()
-            residual = measurement - self.measurement_func(estimated_state)
+            residual = 1# measurement - self.measurement_func(estimated_state)
             # Extract current state
+            
             z, phi, theta, psi = self.measurement_func(state) \
                 + np.random.multivariate_normal(np.zeros(4), measurement_noise_cov)
+            z = max(0, z)
             measurement = np.array([z, phi, theta, psi])
+            
             # Compute PID outputs
             Fz = altitude_pid.compute(target_altitude, z, dt)
             tau_phi = roll_pid.compute(target_roll, phi, dt)
             tau_theta = pitch_pid.compute(target_pitch, theta, dt)
             tau_psi = yaw_pid.compute(target_yaw, psi, dt)
             # Convert to rotor forces
-            f1 = (Fz + tau_theta - tau_phi + tau_psi) / 4
-            f2 = (Fz - tau_theta - tau_phi - tau_psi) / 4
-            f3 = (Fz + tau_theta + tau_phi - tau_psi) / 4
-            f4 = (Fz - tau_theta + tau_phi + tau_psi) / 4
-            inputs = np.clip([f1, f2, f3, f4], 0, np.inf)  # Ensure forces are non-negative
+            # f1 = (Fz + tau_theta - tau_phi + tau_psi) / 4
+            # f2 = (Fz - tau_theta - tau_phi - tau_psi) / 4
+            # f3 = (Fz + tau_theta + tau_phi - tau_psi) / 4
+            # f4 = (Fz - tau_theta + tau_phi + tau_psi) / 4
+            torques = np.array([Fz, tau_phi, tau_theta, tau_psi])
+            b, l, k = params.get('b'), params.get('l'), params.get('k')
+            rotorspeed_to_torque = np.array([
+                [b, b, b, b],
+                [b*l, 0, -b*l, 0],
+                [0, b*l, 0, -b*l],
+                [k, -k, k, -k]
+            ])
+            breakpoint()
+            inputs = np.linalg.solve(rotorspeed_to_torque, torques)
+            inputs = np.clip(inputs, 0, np.inf)  # Ensure forces are non-negative
             # Log
             tracker.track(state, estimated_state, measurement, inputs, residual)
             # Update state
             state = state + self.dynamics(state, inputs, params) * dt \
-                + np.random.multivariate_normal(np.zeros_like(state), process_noise_cov)
+                # + np.random.multivariate_normal(np.zeros_like(state), process_noise_cov)
             state[2] = max(state[2], 0) # Altitude correction
             
             if t > attack_start and t < attack_end:

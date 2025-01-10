@@ -132,6 +132,10 @@ class HillClimbingCar(BaseControlSystem):
                 b=np.array([0.18543593999687008]) + 0.5*np.array([0.16000361755278])),
         }
     ):
+        # Process and measurement noise
+        process_noise_cov = config['process-noise-cov']
+        measurement_noise_cov = config['measurement-noise-cov']
+        
         # Initial state and parameters
         state = config['init-state']  # [Position (m), Velocity (m/s)]
         measurement = self.measurement_func(state) + np.random.normal(0, measurement_noise_cov)
@@ -146,9 +150,6 @@ class HillClimbingCar(BaseControlSystem):
         v_controller: PIDController = config['v-controller']
         target_velocity = config['target-velocity']
 
-        # Process and measurement noise
-        process_noise_cov = config['process-noise-cov']
-        measurement_noise_cov = config['measurement-noise-cov']
 
         # Init Extended Kalman Filter
         ekf = EKF(
