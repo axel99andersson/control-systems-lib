@@ -118,17 +118,17 @@ class HillClimbingCar(BaseControlSystem):
                 "rho": 1.225,    # Air density (kg/m^3)
                 "Fmax": 40000,    # Maximum engine force (N)
             },
-            "init-state": np.array([0, 5]),  # [Position (m), Velocity (m/s)]
+            "init-state": np.array([0, 20]),  # [Position (m), Velocity (m/s)]
             "dt": 0.1,
             "time": 50,
-            "attack-start": -1,
-            "attack-end": -1,
+            "attack-start": 10,
+            "attack-end": 20,
             "v-controller": PIDController(0.5, 0.5, 0.01),
             "target-velocity": 20,
             "process-noise-cov": np.diag([0.01, 0.1]),
             "measurement-noise-cov": 0.2,
             "anomaly-detector": CUSUMDetector(
-                thresholds=5*np.array([0.16000361755278]),
+                thresholds=10*np.array([0.16000361755278]),
                 b=np.array([0.18543593999687008]) + 0.5*np.array([0.16000361755278])),
         }
     ):
@@ -150,7 +150,6 @@ class HillClimbingCar(BaseControlSystem):
         v_controller: PIDController = config['v-controller']
         target_velocity = config['target-velocity']
 
-
         # Init Extended Kalman Filter
         ekf = EKF(
             dynamics_func=self.dynamics,
@@ -161,28 +160,35 @@ class HillClimbingCar(BaseControlSystem):
         )
 
         # Anomaly Detector
-        cusum = config['anomaly-detector']
-
+        cusum: CUSUMDetector = config['anomaly-detector']
+        under_attack = False
         # Save metrics
         tracker = MetricsTracker()
+
+        place_holder_cond = False
 
         # Simulate
         for t in time:
             estimated_state = ekf.get_state_estimate()
             residual = measurement - self.measurement_func(estimated_state)
+            _, under_attack = cusum.update(residual)
+            print(f"Time: {t}, Under Attack: {under_attack}")
             measurement = self.measurement_func(state) + np.random.normal(0, measurement_noise_cov)
-            throttle = v_controller.compute(target_velocity, measurement, dt)
-            derivatives = self.dynamics(state, [throttle], params) 
-            tracker.track(state, estimated_state, measurement, throttle, residual)
-            state = state + derivatives * dt + np.random.multivariate_normal(np.zeros(2), process_noise_cov)
+            # Launch Attack
             if t > attack_start and t < attack_end:
                 measurement = self.attack(measurement, magnitude=2.0)
+            # Derive control input
+            throttle = v_controller.compute(target_velocity, measurement, dt)
+            if place_holder_cond:
                 ekf.predict([throttle], dt, params)
             else:
                 ekf.predict([throttle], dt, params)
                 ekf.update(np.array([measurement]))
-            
 
+            derivatives = self.dynamics(state, [throttle], params) 
+            tracker.track(state, estimated_state, measurement, throttle, residual)
+            state = state + derivatives * dt + np.random.multivariate_normal(np.zeros(2), process_noise_cov)
+            
         print(tracker.residual_statistics())
         plot_figs(time, tracker)
 
