@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 from pid_controller import PIDController
 from ekf import EKF
-from anomaly_detection import CUSUMDetector
+from anomaly_detection import CUSUMDetector, ChiSquaredDetector
 from metrics import MetricsTracker, plot_figs
 from .base_control_system import BaseControlSystem
 
@@ -35,7 +35,7 @@ class HillClimbingCar(BaseControlSystem):
             np.array: Derivatives [dx/dt, dv/dt]
         """
         x, v = state
-        throttle = np.clip(inputs[0], 0, 1)
+        throttle = inputs[0]
         
         # Extract parameters
         m = params.get("m", 1200)       # Vehicle mass (kg)
@@ -50,10 +50,10 @@ class HillClimbingCar(BaseControlSystem):
         theta = self.road_slope(x)
         
         # Forces
-        F_engine = throttle * Fmax        # Engine force
-        F_gravity = m * g * np.sin(theta) # Gravity force along the slope
-        F_rolling = m * g * Cr            # Rolling resistance
-        F_drag = 0.5 * rho * Cd * A * v**2  # Aerodynamic drag
+        F_engine = throttle * Fmax                          # Engine force
+        F_gravity = m * g * np.sin(theta)                   # Gravity force along the slope
+        F_rolling = m * g * Cr * np.cos(theta)              # Rolling resistance
+        F_drag = 0.5 * rho * Cd * A * v**2 *np.cos(theta)   # Aerodynamic drag
         
         # Acceleration
         F_total = F_engine - (F_gravity + F_rolling + F_drag)
@@ -118,19 +118,21 @@ class HillClimbingCar(BaseControlSystem):
                 "rho": 1.225,    # Air density (kg/m^3)
                 "Fmax": 40000,    # Maximum engine force (N)
             },
-            "init-state": np.array([0, 20]),  # [Position (m), Velocity (m/s)]
+            "init-state": np.array([0, 5]),  # [Position (m), Velocity (m/s)]
             "dt": 0.1,
-            "time": 50,
+            "time": 100,
             "attack-start": 10,
             "attack-end": 20,
-            "v-controller": PIDController(0.5, 0.5, 0.01),
+            "attack-magnitude": 7.0,
+            "v-controller": PIDController(0.50320036, 0.50027134, 0.00711447),
             "target-velocity": 20,
             "process-noise-cov": np.diag([0.01, 0.1]),
             "measurement-noise-cov": 0.2,
             "anomaly-detector": CUSUMDetector(
-                thresholds=10*np.array([0.16000361755278]),
-                b=np.array([0.18543593999687008]) + 0.5*np.array([0.16000361755278])),
-        }
+                thresholds=np.array([4.8]),
+                b=np.array([4.79])),
+        },
+        show_plots=False
     ):
         # Process and measurement noise
         process_noise_cov = config['process-noise-cov']
@@ -140,6 +142,7 @@ class HillClimbingCar(BaseControlSystem):
         state = config['init-state']  # [Position (m), Velocity (m/s)]
         measurement = self.measurement_func(state) + np.random.normal(0, measurement_noise_cov)
         params = config['params']
+        throttle = 0
 
         dt = config['dt']        # Time step
         time = np.arange(0, config['time'], dt)
@@ -159,48 +162,89 @@ class HillClimbingCar(BaseControlSystem):
             x_init=state
         )
 
+        detection_ekf = EKF(
+            dynamics_func=self.dynamics,
+            measurement_func=self.measurement_func,
+            state_dim=2,
+            meas_dim=1,
+            x_init=state
+        )
+
         # Anomaly Detector
         cusum: CUSUMDetector = config['anomaly-detector']
+        chi2 = ChiSquaredDetector()
         under_attack = False
         # Save metrics
         tracker = MetricsTracker()
 
         place_holder_cond = False
+        integral_vals = []
 
         # Simulate
         for t in time:
-            estimated_state = ekf.get_state_estimate()
+
+            # if t > 30:
+            #     breakpoint()
+
+            # Predict state
+            estimated_state = detection_ekf.get_state_estimate()
+            estimated_speed_variance = detection_ekf.get_state_estimate_covariance()[1,1]
+            
+            # Take measurement
+            measurement = self.measurement_func(state) + np.random.normal(0, measurement_noise_cov)
+            # Calculate residual and send to anomaly detector
             residual = measurement - self.measurement_func(estimated_state)
             _, under_attack = cusum.update(residual)
-            print(f"Time: {t}, Under Attack: {under_attack}")
-            measurement = self.measurement_func(state) + np.random.normal(0, measurement_noise_cov)
+            # under_attack = chi2.update(residual, estimated_speed_variance)
             # Launch Attack
             if t > attack_start and t < attack_end:
-                measurement = self.attack(measurement, magnitude=2.0)
+                measurement = self.attack(measurement, magnitude=config['attack-magnitude'])
             # Derive control input
             throttle = v_controller.compute(target_velocity, measurement, dt)
-            if place_holder_cond:
+            integral_vals.append(v_controller.get_integral())
+            if under_attack:
+                # Compute control based on estimated state
+                # breakpoint()
+                estimated_state = ekf.get_state_estimate()
+                est_measurement = self.measurement_func(estimated_state)
+                throttle = v_controller.compute(target_velocity, est_measurement, dt)
+                # Prediction step but no correction step due to attacked sensor measurement
                 ekf.predict([throttle], dt, params)
             else:
+                # Prediction and Correction if no attack
                 ekf.predict([throttle], dt, params)
                 ekf.update(np.array([measurement]))
+            
+            # Always Prediction and Correction for Detection EKF
+            detection_ekf.predict([throttle], dt, params)
+            detection_ekf.update(np.array([measurement]))
 
+            # Compute next state
             derivatives = self.dynamics(state, [throttle], params) 
-            tracker.track(state, estimated_state, measurement, throttle, residual)
+            tracker.track(state, estimated_state, measurement, throttle, residual, under_attack)
             state = state + derivatives * dt + np.random.multivariate_normal(np.zeros(2), process_noise_cov)
             
-        print(tracker.residual_statistics())
-        plot_figs(time, tracker)
+        # print(tracker.residual_statistics())
+        # print(f"Mean Squared Control Error: {np.mean(tracker.ms_control_error())}")
 
-        # Plot the road slope as a function of position
-        plt.figure(figsize=(6, 4))
-        states = np.array(tracker.get_metrics()[0])
-        positions = states[:, 0]
-        slopes = np.array([self.road_slope(pos) for pos in positions])
-        plt.plot(positions, slopes, label="Road Slope (rad)")
-        plt.xlabel("Position (m)")
-        plt.ylabel("Slope (rad)")
-        plt.title("Road Slope Profile")
-        plt.legend()
+        if show_plots:
+            plot_figs(time, tracker)
+            tracker.plot_attack_predictions()
+            # Plot the road slope as a function of position
+            plt.figure(figsize=(6, 4))
+            states = np.array(tracker.get_metrics()[0])
+            positions = states[:, 0]
+            slopes = np.array([self.road_slope(pos) for pos in positions])
+            plt.plot(positions, slopes, label="Road Slope (rad)")
+            plt.xlabel("Position (m)")
+            plt.ylabel("Slope (rad)")
+            plt.title("Road Slope Profile")
+            plt.legend()
 
-        plt.show()
+            plt.figure()
+            plt.plot([x/10 for x in range(len(integral_vals))], integral_vals)
+            plt.title("Integral in Controller over Time")
+
+            plt.show()
+
+        return tracker

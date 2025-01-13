@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 class MetricsTracker:
     def __init__(self):
@@ -8,26 +9,30 @@ class MetricsTracker:
         self.state_estimates = []
         self.control_signals = []
         self.residuals = []
+        self.attack_predictions = []
         self.metrics_map = {
             "states": self.states,
             "measurements": self.measurements,
             "state_estimates": self.state_estimates,
             "control_signals": self.control_signals,
             "residuals": self.residuals,
+            "attack_predictions": self.attack_predictions,
         }
 
-    def track(self, state, estimated_state, measurement, control_signal, residuals):
+    def track(self, state, estimated_state, measurement, control_signal, residuals, attack_prediction=None):
         self.states.append(state)
         self.state_estimates.append(estimated_state)
         self.measurements.append(measurement)
         self.control_signals.append(control_signal)
         self.residuals.append(residuals)
+        self.attack_predictions.append(attack_prediction)
         self.metrics_map = {
             "states": self.states,
             "measurements": self.measurements,
             "state_estimates": self.state_estimates,
             "control_signals": self.control_signals,
             "residuals": self.residuals,
+            "attack_predictions": self.attack_predictions
         }
 
     def get_metrics(self, metric=None):
@@ -36,7 +41,8 @@ class MetricsTracker:
                     self.state_estimates, 
                     self.measurements, 
                     self.control_signals, 
-                    self.residuals]
+                    self.residuals,
+                    self.attack_predictions]
         else:
             if metric not in self.metrics_map.keys(): raise Exception(f"{metric} not a Metric")
             return self.metrics_map[metric]
@@ -45,9 +51,23 @@ class MetricsTracker:
         abs_residuals = np.absolute(self.residuals)
         mean, std = abs_residuals.mean(), abs_residuals.std()
         return mean, std
+    
+    def ms_control_error(self):
+        states = np.array(self.states)
+        velocities = states[:,1]
+        setpoints = 20*np.ones_like(velocities)
+        squared_errors = (velocities - setpoints)**2
+        return squared_errors
+    
+    def plot_attack_predictions(self):
+        plt.figure(figsize=(6,4))
+        plt.plot(np.array(range(len(self.attack_predictions))) / 10, self.attack_predictions)
+        plt.xlabel("Time step")
+        plt.ylabel("Attack Prediction")
+
 
 def plot_figs(time, tracker: MetricsTracker):
-    states, state_estimates, measurements, control_signals, residuals = tracker.get_metrics()
+    states, state_estimates, measurements, control_signals, residuals, attack_predictions = tracker.get_metrics()
 
     states = np.array(states)
     state_estimates = np.array(state_estimates)
@@ -85,5 +105,3 @@ def plot_figs(time, tracker: MetricsTracker):
     plt.xlabel("Time (s)")
     plt.ylabel("Residual")
     plt.legend()
-
-    plt.show()

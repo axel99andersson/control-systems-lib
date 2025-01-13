@@ -140,3 +140,33 @@ class EKF:
         np.array : the estimated covariance matrix of the state 
         """
         return self.P
+    
+    def calculate_prediction(self, u, dt, params={}):
+        """
+        Perform the prediction step of the EKF without updating
+        the internal state.
+
+        Parameters:
+        -----------
+        u : np.array
+            Control input vector.
+        dt : float
+            Time step.
+        params : dict
+            Additional parameters for the dynamics function.
+
+        Updates:
+        --------
+        self.x : Predicted state vector.
+        self.P : Predicted state covariance.
+        """
+        # Predict state using dynamics function
+        x = self.x + self.f(self.x, u, params) * dt
+
+        # Compute Jacobian of the dynamics function
+        F = self.compute_jacobian(self.f, x, u, params)
+
+        # Update state covariance
+        P = F @ self.P @ F.T + self.Q
+
+        return x, P

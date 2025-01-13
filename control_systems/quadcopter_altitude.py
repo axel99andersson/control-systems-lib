@@ -132,7 +132,8 @@ class QuadcopterAltitude(BaseControlSystem):
             "anomaly-detector": CUSUMDetector(
                 thresholds=5*np.array([0.16000361755278]),
                 b=np.array([0.18543593999687008]) + 0.5*np.array([0.16000361755278])),
-        }):
+        },
+        show_plots=False):
 
         # Process and measurement noise
         process_noise_cov = config['process-noise-cov']
@@ -204,7 +205,6 @@ class QuadcopterAltitude(BaseControlSystem):
                 [0, b*l, 0, -b*l],
                 [k, -k, k, -k]
             ])
-            breakpoint()
             inputs = np.linalg.solve(rotorspeed_to_torque, torques)
             inputs = np.clip(inputs, 0, np.inf)  # Ensure forces are non-negative
             # Log
@@ -223,10 +223,11 @@ class QuadcopterAltitude(BaseControlSystem):
 
         import matplotlib.pyplot as plt
 
-        states = np.array(tracker.get_metrics(metric='states'))
-        plt.figure()
-        plt.plot(time, states[:, 2], label='Altitude (z)')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Altitude (m)')
-        plt.legend()
-        plt.show()
+        if show_plots:
+            states = np.array(tracker.get_metrics(metric='states'))
+            plt.figure()
+            plt.plot(time, states[:, 2], label='Altitude (z)')
+            plt.xlabel('Time (s)')
+            plt.ylabel('Altitude (m)')
+            plt.legend()
+            plt.show()

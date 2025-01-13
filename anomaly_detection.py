@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import chi2
 
 class CUSUMDetector:
     def __init__(self, thresholds, b):
@@ -27,3 +28,11 @@ class CUSUMDetector:
         """
         self.s = np.maximum(self.s + np.absolute(residuals) - self.b, np.zeros_like(self.s))
         return np.where(self.s > self.thresholds)[0], np.any(self.s > self.thresholds)
+    
+class ChiSquaredDetector():
+    def __init__(self, alpha=0.05):
+        self.threshold = chi2.ppf(1-alpha, df=1)
+
+    def update(self, residual, variance):
+        chi2_value = residual**2 / variance
+        return chi2_value > self.threshold

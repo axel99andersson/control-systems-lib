@@ -6,7 +6,8 @@ from control_systems.base_control_system import BaseControlSystem
 
 @click.command()
 @click.option("-s", "--control_system", default="car", help="The control system you want to run")
-def main(control_system: str):
+@click.option("-p", "--show_plots", default=True, help="Plot results")
+def main(control_system: str, show_plots: bool):
     """
     Main entry point to run a control system. Choose control system with the 
     --control_system flag
@@ -21,7 +22,7 @@ def main(control_system: str):
         raise click.BadParameter("--control_system must be one of [car, copter]")
 
     obj: BaseControlSystem = input_map[control_system]
-    obj.run_control_system()
+    obj.run_control_system(show_plots=show_plots)
 
 if __name__ == "__main__":
     main()
