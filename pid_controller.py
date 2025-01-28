@@ -1,7 +1,7 @@
 import numpy as np
 
 class PIDController:
-    def __init__(self, kp, ki, kd, integral_windup=200.0, dead_zone=0.5):
+    def __init__(self, kp, ki, kd, integral_windup=20000.0, dead_zone=0.5):
         self.kp = kp
         self.ki = ki
         self.kd = kd

@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 from pid_controller import PIDController
 from ekf import EKF
 from anomaly_detection import CUSUMDetector, ChiSquaredDetector
-from metrics import MetricsTracker, plot_figs
+from state_reconstructor import CheckPointer, StateReconstructor
+from metrics import MetricsTracker, Logger, plot_figs
 from .base_control_system import BaseControlSystem
 
 class HillClimbingCar(BaseControlSystem):
@@ -88,7 +89,7 @@ class HillClimbingCar(BaseControlSystem):
             float: Slope angle (in radians)
         """
         # return 0.1 * np.sin(0.05 * x)  # 10% grade sinusoidal hill
-        if x >= 10 and x < 300:
+        if x >= 100 and x < 300:
             return np.pi / 6
         else: 
             return 0.0
@@ -118,19 +119,19 @@ class HillClimbingCar(BaseControlSystem):
                 "rho": 1.225,    # Air density (kg/m^3)
                 "Fmax": 40000,    # Maximum engine force (N)
             },
-            "init-state": np.array([0, 5]),  # [Position (m), Velocity (m/s)]
-            "dt": 0.1,
-            "time": 100,
+            "init-state": np.array([0, 0]),  # [Position (m), Velocity (m/s)]
+            "dt": 0.01,
+            "time": 50,
             "attack-start": 10,
             "attack-end": 20,
-            "attack-magnitude": 7.0,
-            "v-controller": PIDController(0.50320036, 0.50027134, 0.00711447),
+            "attack-magnitude": 3.0,
+            "v-controller": PIDController(5.0, 0.5, 0.0), # PIDController(0.50320036, 0.50027134, 0.00711447), 
             "target-velocity": 20,
-            "process-noise-cov": np.diag([0.01, 0.1]),
-            "measurement-noise-cov": 0.2,
+            "process-noise-cov": np.diag([0.001, 0.001]),
+            "measurement-noise-cov": 1.0,
             "anomaly-detector": CUSUMDetector(
-                thresholds=np.array([4.8]),
-                b=np.array([4.79])),
+                thresholds=np.array([5*1.033386]),
+                b=np.array([2.5*1.033386 + 0.5*0.632138])),
         },
         show_plots=False
     ):
@@ -170,28 +171,35 @@ class HillClimbingCar(BaseControlSystem):
             x_init=state
         )
 
+        reconstructor = StateReconstructor(
+            dt=dt,
+            dynamics_func=self.dynamics,
+            measurement_func=self.measurement_func,
+            state_dim=2,
+            meas_dim=1,
+        )
+
+        checkpointer = CheckPointer(detection_delay=50)
+
         # Anomaly Detector
         cusum: CUSUMDetector = config['anomaly-detector']
         chi2 = ChiSquaredDetector()
         under_attack = False
+        prev_under_attack = False
         # Save metrics
         tracker = MetricsTracker()
+        logger = Logger()
 
-        place_holder_cond = False
         integral_vals = []
 
         # Simulate
         for t in time:
-
-            # if t > 30:
-            #     breakpoint()
-
             # Predict state
             estimated_state = detection_ekf.get_state_estimate()
-            estimated_speed_variance = detection_ekf.get_state_estimate_covariance()[1,1]
+            estimated_state_variance = detection_ekf.get_state_estimate_covariance()
             
             # Take measurement
-            measurement = self.measurement_func(state) + np.random.normal(0, measurement_noise_cov)
+            measurement = self.measurement_func(state) + np.random.normal(measurement_noise_cov)
             # Calculate residual and send to anomaly detector
             residual = measurement - self.measurement_func(estimated_state)
             _, under_attack = cusum.update(residual)
@@ -203,6 +211,8 @@ class HillClimbingCar(BaseControlSystem):
             throttle = v_controller.compute(target_velocity, measurement, dt)
             integral_vals.append(v_controller.get_integral())
             if under_attack:
+                if not prev_under_attack and False:
+                    rec_state, rec_state_var = reconstructor.reconstruct_state(checkpointer)
                 # Compute control based on estimated state
                 # breakpoint()
                 estimated_state = ekf.get_state_estimate()
@@ -214,6 +224,7 @@ class HillClimbingCar(BaseControlSystem):
                 # Prediction and Correction if no attack
                 ekf.predict([throttle], dt, params)
                 ekf.update(np.array([measurement]))
+                checkpointer.update_checkpoint(estimated_state, estimated_state_variance, [throttle])
             
             # Always Prediction and Correction for Detection EKF
             detection_ekf.predict([throttle], dt, params)
@@ -222,18 +233,30 @@ class HillClimbingCar(BaseControlSystem):
             # Compute next state
             derivatives = self.dynamics(state, [throttle], params) 
             tracker.track(state, estimated_state, measurement, throttle, residual, under_attack)
+            logger.log_data({
+                "time": t,
+                "pos": state[0],
+                "vel": state[1],
+                "est_pos": estimated_state[0],
+                "est_vel": estimated_state[1],
+                "measured_vel": measurement,
+                "ctl_signal": throttle,
+                "attack": attack_start < t < attack_end,
+                "attack_pred": under_attack
+            })
             state = state + derivatives * dt + np.random.multivariate_normal(np.zeros(2), process_noise_cov)
-            
+            prev_under_attack = under_attack
+
+
         # print(tracker.residual_statistics())
         # print(f"Mean Squared Control Error: {np.mean(tracker.ms_control_error())}")
-
+        logger.save_data("car")
         if show_plots:
             plot_figs(time, tracker)
-            tracker.plot_attack_predictions()
-            # Plot the road slope as a function of position
+            # tracker.plot_attack_predictions()
+            # # Plot the road slope as a function of position
             plt.figure(figsize=(6, 4))
-            states = np.array(tracker.get_metrics()[0])
-            positions = states[:, 0]
+            positions = np.arange(0, 1000, dt)
             slopes = np.array([self.road_slope(pos) for pos in positions])
             plt.plot(positions, slopes, label="Road Slope (rad)")
             plt.xlabel("Position (m)")
@@ -241,9 +264,9 @@ class HillClimbingCar(BaseControlSystem):
             plt.title("Road Slope Profile")
             plt.legend()
 
-            plt.figure()
-            plt.plot([x/10 for x in range(len(integral_vals))], integral_vals)
-            plt.title("Integral in Controller over Time")
+            # plt.figure()
+            # plt.plot([x/10 for x in range(len(integral_vals))], integral_vals)
+            # plt.title("Integral in Controller over Time")
 
             plt.show()
 

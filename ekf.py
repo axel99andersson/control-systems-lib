@@ -170,3 +170,17 @@ class EKF:
         P = F @ self.P @ F.T + self.Q
 
         return x, P
+    
+    def set_state_estimate(self, x, P):
+        """
+        Sets the state to specified values
+
+        Args:
+            x : np.array
+                state estimate
+            P : np.array
+                state estimate covariance matrix
+        """
+        
+        self.x = x
+        self.P = P

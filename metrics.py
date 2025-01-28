@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import datetime as dt
 
 class MetricsTracker:
     def __init__(self):
@@ -65,6 +66,24 @@ class MetricsTracker:
         plt.xlabel("Time step")
         plt.ylabel("Attack Prediction")
 
+class Logger:
+    def __init__(self):
+        """
+        Stores data for each time step, each time step is a dictionary
+        """
+        self.data = []
+
+    def log_data(self, data: dict):  
+        self.data.append(data)
+
+    def save_data(self, control_system: str, filename: str = None):
+
+        if filename is None:
+            filename = f"{control_system}_data_{dt.datetime.now()}".replace(" ", "")
+        
+        df = pd.DataFrame(self.data)
+        df.to_csv(f"./data/{filename}.csv")
+
 
 def plot_figs(time, tracker: MetricsTracker):
     states, state_estimates, measurements, control_signals, residuals, attack_predictions = tracker.get_metrics()
@@ -75,7 +94,7 @@ def plot_figs(time, tracker: MetricsTracker):
     throttles = np.array(control_signals)
 
     # Plot position and velocity
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(12, 10))
     plt.subplot(2, 1, 1)
     plt.plot(time, states[:, 0], label="Position (m)")
     plt.xlabel("Time (s)")
@@ -85,8 +104,10 @@ def plot_figs(time, tracker: MetricsTracker):
 
     plt.subplot(2, 1, 2)
     plt.plot(time, states[:, 1], label="True Velocity (m/s)", color='orange')
-    plt.plot(time, measurements, label="Measurement", color='red')
-    plt.plot(time, state_estimates[:,1], label="Estimated Velocity", color='blue')
+    # plt.plot(time, np.concatenate((20*np.ones(2000), 21*np.ones(8000))), label="Reference", color="blue")
+    plt.plot(time, 20*np.ones_like(time), label="Reference", color="blue")
+    # plt.plot(time, measurements, label="Measurement", color='red')
+    # plt.plot(time, state_estimates[:,1], label="Estimated Velocity", color='blue')
     plt.vlines(10, 0, 30)
     plt.vlines(20, 0, 30)
     plt.xlabel("Time (s)")
@@ -94,14 +115,14 @@ def plot_figs(time, tracker: MetricsTracker):
     plt.title("Vehicle Velocity")
     plt.legend()
 
-    plt.figure(figsize=(6, 4))
-    plt.plot(time, throttles, label="Throttle")
-    plt.xlabel("Time (s)")
-    plt.ylabel("Throttle")
-    plt.legend()
+    # plt.figure(figsize=(6, 4))
+    # plt.plot(time, throttles, label="Throttle")
+    # plt.xlabel("Time (s)")
+    # plt.ylabel("Throttle")
+    # plt.legend()
 
-    plt.figure(figsize=(6, 4))
-    plt.plot(time, np.absolute(residuals), label="Absolute Residuals")
-    plt.xlabel("Time (s)")
-    plt.ylabel("Residual")
-    plt.legend()
+    # plt.figure(figsize=(6, 4))
+    # plt.plot(time, np.absolute(residuals), label="Absolute Residuals")
+    # plt.xlabel("Time (s)")
+    # plt.ylabel("Residual")
+    # plt.legend()
