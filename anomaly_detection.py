@@ -3,10 +3,12 @@ from scipy.stats import chi2
 from collections import deque
 
 class CUSUMDetector:
-    def __init__(self, thresholds, b):
+    def __init__(self, thresholds, b, epsilon=0.1):
         self.s = np.zeros_like(thresholds)
         self.thresholds = thresholds
         self.b = b
+        self.eps = epsilon
+        print("CUSUM Updated")
 
     def update(self, residuals):
         """
@@ -28,6 +30,9 @@ class CUSUMDetector:
             bool : True if any of the sensors are above its threshold
         """
         self.s = np.maximum(self.s + np.absolute(residuals) - self.b, np.zeros_like(self.s))
+
+        alarm_indices = np.where(self.s > self.thresholds)
+        # self.s[alarm_indices] = self.thresholds[alarm_indices] + self.eps*np.ones_like(self.s[alarm_indices])
         return np.where(self.s > self.thresholds)[0], np.any(self.s > self.thresholds)
     
 class ChiSquaredDetector:

@@ -119,22 +119,24 @@ class HillClimbingCar(BaseControlSystem):
                 "rho": 1.225,    # Air density (kg/m^3)
                 "Fmax": 40000,    # Maximum engine force (N)
             },
-            "init-state": np.array([0, 0]),  # [Position (m), Velocity (m/s)]
+            "init-state": np.array([0, 19]),  # [Position (m), Velocity (m/s)]
             "dt": 0.01,
             "time": 50,
             "attack-start": 10,
             "attack-end": 20,
-            "attack-magnitude": 3.0,
-            "v-controller": PIDController(5.0, 0.5, 0.0), # PIDController(0.50320036, 0.50027134, 0.00711447), 
+            "attack-magnitude": 5.0,
+            "v-controller": PIDController(0.1, 0.5, 0.0), # PIDController(0.50320036, 0.50027134, 0.00711447), 
             "target-velocity": 20,
             "process-noise-cov": np.diag([0.001, 0.001]),
-            "measurement-noise-cov": 1.0,
+            "measurement-noise-cov": 0.1,
             "anomaly-detector": CUSUMDetector(
-                thresholds=np.array([5*1.033386]),
-                b=np.array([2.5*1.033386 + 0.5*0.632138])),
+                thresholds=np.array([4.0]),
+                b=np.array([1.7])), # 0*1.033386 + 0.1*0.632138
         },
-        show_plots=False
-    ):
+        show_plots=False,
+        save_data=False
+    ):  
+        print("Updated")
         # Process and measurement noise
         process_noise_cov = config['process-noise-cov']
         measurement_noise_cov = config['measurement-noise-cov']
@@ -171,14 +173,7 @@ class HillClimbingCar(BaseControlSystem):
             x_init=state
         )
 
-        reconstructor = StateReconstructor(
-            dt=dt,
-            dynamics_func=self.dynamics,
-            measurement_func=self.measurement_func,
-            state_dim=2,
-            meas_dim=1,
-        )
-
+        reconstructor = StateReconstructor(dt=dt)
         checkpointer = CheckPointer(detection_delay=50)
 
         # Anomaly Detector
@@ -189,42 +184,50 @@ class HillClimbingCar(BaseControlSystem):
         # Save metrics
         tracker = MetricsTracker()
         logger = Logger()
-
-        integral_vals = []
-
+        ss = []
         # Simulate
         for t in time:
+            # if t > 10:
+            #     breakpoint()
             # Predict state
             estimated_state = detection_ekf.get_state_estimate()
             estimated_state_variance = detection_ekf.get_state_estimate_covariance()
             
             # Take measurement
             measurement = self.measurement_func(state) + np.random.normal(measurement_noise_cov)
-            # Calculate residual and send to anomaly detector
-            residual = measurement - self.measurement_func(estimated_state)
-            _, under_attack = cusum.update(residual)
-            # under_attack = chi2.update(residual, estimated_speed_variance)
-            # Launch Attack
+            
+            # Launch Attack at some timesteps
             if t > attack_start and t < attack_end:
                 measurement = self.attack(measurement, magnitude=config['attack-magnitude'])
+            # Calculate residual and send to anomaly detector
+
+            residual = measurement - self.measurement_func(ekf.get_state_estimate()) # self.measurement_func(estimated_state) - ...
+            ss.append(cusum.s[0])
+            _, under_attack = cusum.update(residual)
+            # under_attack = chi2.update(residual, estimated_state_variance[1][1])
             # Derive control input
             throttle = v_controller.compute(target_velocity, measurement, dt)
-            integral_vals.append(v_controller.get_integral())
+            
             if under_attack:
-                if not prev_under_attack and False:
-                    rec_state, rec_state_var = reconstructor.reconstruct_state(checkpointer)
-                # Compute control based on estimated state
-                # breakpoint()
-                estimated_state = ekf.get_state_estimate()
+                
+                if not prev_under_attack:
+                    estimated_state, _ = reconstructor.reconstruct_state(checkpointer, ekf)
+                else:
+                    # Compute control based on estimated state
+                    estimated_state = ekf.get_state_estimate()
+                    estimated_state_variance = ekf.get_state_estimate_covariance()
                 est_measurement = self.measurement_func(estimated_state)
                 throttle = v_controller.compute(target_velocity, est_measurement, dt)
                 # Prediction step but no correction step due to attacked sensor measurement
                 ekf.predict([throttle], dt, params)
+                
             else:
                 # Prediction and Correction if no attack
                 ekf.predict([throttle], dt, params)
                 ekf.update(np.array([measurement]))
-                checkpointer.update_checkpoint(estimated_state, estimated_state_variance, [throttle])
+            
+            # Update Checkpointer
+            checkpointer.update_checkpoint(estimated_state, estimated_state_variance, [throttle])
             
             # Always Prediction and Correction for Detection EKF
             detection_ekf.predict([throttle], dt, params)
@@ -250,7 +253,8 @@ class HillClimbingCar(BaseControlSystem):
 
         # print(tracker.residual_statistics())
         # print(f"Mean Squared Control Error: {np.mean(tracker.ms_control_error())}")
-        logger.save_data("car")
+        if save_data:
+            logger.save_data("car")
         if show_plots:
             plot_figs(time, tracker)
             # tracker.plot_attack_predictions()
@@ -263,11 +267,18 @@ class HillClimbingCar(BaseControlSystem):
             plt.ylabel("Slope (rad)")
             plt.title("Road Slope Profile")
             plt.legend()
-
+            
             # plt.figure()
             # plt.plot([x/10 for x in range(len(integral_vals))], integral_vals)
             # plt.title("Integral in Controller over Time")
+            plt.figure()
+            plt.plot(time, ss, label="CUSUM Stat")
+            plt.hlines(cusum.thresholds[0], min(time), max(time), label="Detection Threshold")
 
             plt.show()
 
-        return tracker
+        return logger
+
+
+
+

@@ -32,28 +32,33 @@ class CheckPointer:
         self.queue.clear()
         return mean, var, ctr_signals
 
+    def checkpointer_is_empty(self):
+        return len(self.queue) == 0
     
 class StateReconstructor:
-    def __init__(self, dt, dynamics_func, measurement_func, state_dim, meas_dim, Q=None, R=None, x_init=None):
-        self.ekf = EKF(dynamics_func, measurement_func, state_dim, meas_dim, Q, R, x_init)
+    def __init__(self, dt):
         self.dt = dt
 
-    def reconstruct_state(self, checkpointer: CheckPointer):
+    def reconstruct_state(self, checkpointer: CheckPointer, ekf: EKF):
         """
         Reconstructs the current state based on the CheckPointer
 
         Args:
             checkpointer : CheckPointer
-        
+                CheckPointer object containung at least one trustful state
+            ekf : EKF
+                Extended Kalman filter to use for prediction
         Returns:
             Tuple[np.array, np.array] :
                 the reconstructed state estimate and variance
         """
+        if checkpointer.checkpointer_is_empty():
+            return ekf.get_state_estimate(), ekf.get_state_estimate_covariance()
         state_mean, state_var, ctr_signals = checkpointer.get_trusty_state()
-        self.ekf.set_state_estimate(state_mean, state_var)
+        ekf.set_state_estimate(state_mean, state_var)
 
         for u in ctr_signals:
-            self.ekf.predict(u, self.dt)
+            ekf.predict(u, self.dt)
 
-        return self.ekf.get_state_estimate(), self.ekf.get_state_estimate_covariance()
+        return ekf.get_state_estimate(), ekf.get_state_estimate_covariance()
 
