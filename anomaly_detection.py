@@ -8,7 +8,7 @@ class CUSUMDetector:
         self.thresholds = thresholds
         self.b = b
         self.eps = epsilon
-        print("CUSUM Updated")
+        
 
     def update(self, residuals):
         """
@@ -32,7 +32,7 @@ class CUSUMDetector:
         self.s = np.maximum(self.s + np.absolute(residuals) - self.b, np.zeros_like(self.s))
 
         alarm_indices = np.where(self.s > self.thresholds)
-        # self.s[alarm_indices] = self.thresholds[alarm_indices] + self.eps*np.ones_like(self.s[alarm_indices])
+        self.s[alarm_indices] = self.thresholds[alarm_indices] + self.eps*np.ones_like(self.s[alarm_indices])
         return np.where(self.s > self.thresholds)[0], np.any(self.s > self.thresholds)
     
 class ChiSquaredDetector:
