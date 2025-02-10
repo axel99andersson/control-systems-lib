@@ -136,7 +136,7 @@ class HillClimbingCar(BaseControlSystem):
         show_plots=False,
         save_data=False
     ):  
-        print("Updateds")
+        print("Updated")
         # Process and measurement noise
         process_noise_cov = config['process-noise-cov']
         measurement_noise_cov = config['measurement-noise-cov']
