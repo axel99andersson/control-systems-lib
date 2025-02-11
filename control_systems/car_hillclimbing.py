@@ -117,7 +117,7 @@ class HillClimbingCar(BaseControlSystem):
                 "Cd": 0.3,       # Aerodynamic drag coefficient
                 "A": 2.2,        # Frontal area (m^2)
                 "rho": 1.225,    # Air density (kg/m^3)
-                "Fmax": 40000,    # Maximum engine force (N)
+                "Fmax": 7000,    # Maximum engine force (N) 40000
             },
             "init-state": np.array([0, 19]),  # [Position (m), Velocity (m/s)]
             "dt": 0.01,
@@ -125,7 +125,7 @@ class HillClimbingCar(BaseControlSystem):
             "attack-start": 10,
             "attack-end": 20,
             "attack-magnitude": 5.0,
-            "v-controller": PIDController(0.1, 0.5, 0.0), # PIDController(0.50320036, 0.50027134, 0.00711447), 
+            "v-controller": PIDController(1.0, 1.0, 0.0), # PIDController(0.1, 0.5, 0), 
             "target-velocity": 20,
             "process-noise-cov": np.diag([0.001, 0.001]),
             "measurement-noise-cov": 0.1,
