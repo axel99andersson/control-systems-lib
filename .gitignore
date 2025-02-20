@@ -2,3 +2,5 @@
 /control_systems/__pycache__
 /data
 /imgs
+/models
+/tensorboard_logs

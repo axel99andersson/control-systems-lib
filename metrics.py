@@ -77,7 +77,6 @@ class Logger:
         self.data.append(data)
 
     def save_data(self, control_system: str, filename: str = None):
-
         if filename is None:
             filename = f"{control_system}_data_{dt.datetime.now()}".replace(" ", "")
         
