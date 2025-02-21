@@ -4,7 +4,7 @@ class EKF:
     def __init__(self, dynamics_func, measurement_func, state_dim, meas_dim, Q=None, R=None, x_init=None):
         """
         Extended Kalman Filter for a generic nonlinear system.
-
+        
         Parameters:
         -----------
         dynamics_func : callable
