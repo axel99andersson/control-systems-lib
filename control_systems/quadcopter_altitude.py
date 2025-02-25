@@ -231,3 +231,6 @@ class QuadcopterAltitude(BaseControlSystem):
             plt.ylabel('Altitude (m)')
             plt.legend()
             plt.show()
+
+    def run_control_system_torch(self, config):
+        return super().run_control_system_torch(config)

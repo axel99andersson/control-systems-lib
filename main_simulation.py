@@ -22,7 +22,7 @@ def main(control_system: str, show_plots: bool):
         raise click.BadParameter("--control_system must be one of [car, copter]")
 
     obj: BaseControlSystem = input_map[control_system]
-    obj.run_control_system(show_plots=show_plots)
+    obj.run_control_system_torch(show_plots=show_plots, recovery_module_on=False)
 
 if __name__ == "__main__":
     main()

@@ -20,3 +20,7 @@ class BaseControlSystem(ABC):
     @abstractmethod
     def run_control_system(self, config):
         pass
+
+    @abstractmethod
+    def run_control_system_torch(self, config):
+        pass
