@@ -4,3 +4,4 @@
 /imgs
 /models
 /tensorboard_logs
+*.png

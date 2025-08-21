@@ -26,8 +26,8 @@ class EKF:
         self.P = np.eye(state_dim)   # Covariance estimate
 
         # Process and measurement noise covariance
-        self.Q = np.eye(state_dim) if Q == None else Q  # Process noise covariance
-        self.R = np.eye(meas_dim) if R == None else R    # Measurement noise covariance
+        self.Q = np.eye(state_dim) if Q is None else Q  # Process noise covariance
+        self.R = np.eye(meas_dim) if R is None else R    # Measurement noise covariance
 
     def predict(self, u, dt, params={}):
         """

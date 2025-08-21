@@ -10,7 +10,7 @@ class CUSUMDetector:
         self.eps = epsilon
         
 
-    def update(self, residuals):
+    def update(self, residuals, return_statistic=True):
         """
         Updates the CUSUM statistic and returns indices of sensors over
         the thresholds.
@@ -31,8 +31,12 @@ class CUSUMDetector:
         """
         self.s = np.maximum(self.s + np.absolute(residuals) - self.b, np.zeros_like(self.s))
 
-        alarm_indices = np.where(self.s > self.thresholds)
-        self.s[alarm_indices] = self.thresholds[alarm_indices] + self.eps*np.ones_like(self.s[alarm_indices])
+        # alarm_indices = np.where(self.s > self.thresholds)
+        # self.s[alarm_indices] = self.thresholds[alarm_indices] + self.eps*np.ones_like(self.s[alarm_indices])
+        
+        if return_statistic:
+            return np.where(self.s > self.thresholds)[0], np.any(self.s > self.thresholds), self.s
+        
         return np.where(self.s > self.thresholds)[0], np.any(self.s > self.thresholds)
     
     def reset(self):
